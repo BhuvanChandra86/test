@@ -1,1 +1,16 @@
-initail test
+import os
+import pandas as pd
+import json
+from dataprofiler import Data, Profiler
+chunk_folder = "path_to_your_chunk_files" 
+output_file = "combined_file.csv"
+chunk_files = sorted([os.path.join(chunk_folder, f) for f in os.listdir(chunk_folder) if f.endswith(".csv")])
+print(f"Found {len(chunk_files)} files. Combining...")
+combined_df = pd.concat((pd.read_csv(f) for f in chunk_files), ignore_index=True)
+combined_df.to_csv(output_file, index=False)
+print(f"Combined CSV written to: {output_file}")
+print("Running DataProfiler...")
+data = Data(output_file)
+profile = Profiler(data)
+report = profile.report(report_options={"output_format": "compact"})
+print(json.dumps(report, indent=4))
