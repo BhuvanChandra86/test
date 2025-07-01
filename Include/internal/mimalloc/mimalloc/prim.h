@@ -327,3 +327,146 @@ static inline mi_heap_t* mi_prim_get_default_heap(void) {
 
 
 #endif  // MIMALLOC_PRIM_H
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+import pandas as pd
+import os
+folder_path = "path/to/your/folder"
+
+csv_files = [os.path.join(folder_path, f) for f in os.listdir(folder_path) if f.endswith(".csv")]
+
+combined_df = pd.concat([pd.read_csv(file) for file in csv_files], ignore_index=True)
+
+class MockConnector:
+    def get_df(self, conn, ds):
+        return combined_df
+
+    def get_table_metadata(self, conn, ds):
+        return {
+            "columns": list(combined_df.columns),
+            "types": [str(dtype) for dtype in combined_df.dtypes]
+        }
+
+def get_connector(conn_type):
+    return MockConnector()
+
+class DataProfiler:
+    def __init__(self, type, conn, ds):
+        self.type = type
+        self.conn = conn
+        self.ds = ds
+
+    def __get_summary_stats(self, column):
+        dtype = str(column.dtype).lower()
+        stats = {}
+        try:
+            if dtype == "int64":
+                stats.update({
+                    "min": int(column.min(skipna=True)),
+                    "max": int(column.max(skipna=True)),
+                    "std": int(column.std(skipna=True)),
+                     "sum": int(column.sum(skipna=True)), 
+                    "mean": int(column.mean(skipna=True)),
+                    "median": int(column.median(skipna=True)),
+                    "max_occurence": int(column.mode().values[0])
+                })
+            elif dtype == "float64":
+                if column.dropna().shape[0] == 0:
+                    stats.update({
+            "min": None, "max": None, "sum": None,
+            "std": None, "mean": None,
+            "median": None, "max_occurence": None
+        })
+                else:
+                    stats.update({
+                        "min": float(column.min()),
+                        "max": float(column.max()),
+                        "std": round(float(column.std()), 1),
+                        "sum": round(float(column.sum()), 1), 
+                        "mean": round(float(column.mean()), 1),
+                        "median": round(float(column.median()), 1),
+                        "max_occurence": round(float(column.mode().values[0]), 1)
+                    })
+            else:
+                stats.update({
+                    "min": None, "max": None, "std": None,
+                    "mean": None, "median": None,
+                    "max_occurence": str(column.mode().values[0])
+                })
+        except Exception:
+            stats.update({key: None for key in ["min", "max", "std", "mean", "median", "max_occurence"]})
+        return stats
+
+    def __get_column_profile(self, dataframe):
+        row_dict = {}
+        if isinstance(dataframe, pd.DataFrame):
+            for column_name in dataframe.columns:
+                column = dataframe[column_name]
+                null_count = column.isnull().sum()
+                distinct_count = column.nunique()
+                summary_stats = self.__get_summary_stats(column)
+                row_dict[column_name] = {
+                    'null_count': int(null_count),
+                    'distinct_count': distinct_count,
+                    **summary_stats
+                }
+        else:
+            row_dict["error"] = "Input is not a valid DataFrame"
+        return row_dict
+
+    def __get_table_profile(self, dataframe):
+        table_json = {}
+        column_metrics = {}
+        row_count = dataframe.shape[0]
+        column_count = dataframe.shape[1]
+        for column in dataframe.columns:
+            pandas_data_type = str(dataframe[column].dtype)
+            column_metrics.update({column: pandas_data_type})
+        table_json = {
+            "row_count": row_count,
+            "column_count": column_count,
+            "metadata": column_metrics
+        }
+        return table_json
+
+    def get_data_profile(self):
+        connector = get_connector(self.type)
+        df = connector.get_df(self.conn, self.ds)
+        if df is None:
+            return None
+        return self.__get_column_profile(df)
+
+    def get_meta_data(self):
+        connector = get_connector(self.type)
+        return connector.get_table_metadata(self.conn, self.ds)
+
+
+profiler = DataProfiler(type="mock", conn=None, ds="mock.parquet")
+profile = profiler.get_data_profile()
+metadata = profiler.get_meta_data()
+
+# Pretty print the profiling stats
+print("\nColumn Profile:")
+for column, stats in profile.items():
+    print(f"\nColumn: {column}")
+    for key, value in stats.items():
+        print(f"  {key}: {value}")
+
+print("\n Table Metadata:")
+for key, value in metadata.items():
+    print(f"{key}: {value}")
+
